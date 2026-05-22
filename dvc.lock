@@ -73,6 +73,11 @@ stages:
   model_evaluation:
     cmd: python src/model_evaluation.py
     deps:
+    - path: data/feature
+      hash: md5
+      md5: 69768cc680827fa5b32c81e9e9c29c34.dir
+      size: 7000762
+      nfiles: 2
     - path: models/lightgbm_model.pkl
       hash: md5
       md5: 67c6c8cd8ec672016584f634aa62985f
@@ -81,6 +86,10 @@ stages:
       hash: md5
       md5: 4d48ce39e2ba80bf452f10e5c286c1b4
       size: 888
+    - path: src/model_evaluation.py
+      hash: md5
+      md5: 3362de968d755d3a0683ef0e33e363de
+      size: 3755
     outs:
     - path: reports/evaluation_report.json
       hash: md5

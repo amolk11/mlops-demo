@@ -34,5 +34,7 @@ stages:
     deps:
     - models/lightgbm_model.pkl
     - models/scaler.pkl
+    - src/model_evaluation.py
+    - data/feature
     outs:
     - reports/evaluation_report.json

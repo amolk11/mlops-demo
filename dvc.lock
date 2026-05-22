@@ -49,3 +49,24 @@ stages:
       md5: 69768cc680827fa5b32c81e9e9c29c34.dir
       size: 7000762
       nfiles: 2
+  model_building:
+    cmd: python src/model_building.py
+    deps:
+    - path: data/feature
+      hash: md5
+      md5: 69768cc680827fa5b32c81e9e9c29c34.dir
+      size: 7000762
+      nfiles: 2
+    - path: src/model_building.py
+      hash: md5
+      md5: c17741ee6c70869e7d6226c8b892cd67
+      size: 1984
+    outs:
+    - path: models/lightgbm_model.pkl
+      hash: md5
+      md5: 67c6c8cd8ec672016584f634aa62985f
+      size: 369925
+    - path: models/scaler.pkl
+      hash: md5
+      md5: 4d48ce39e2ba80bf452f10e5c286c1b4
+      size: 888

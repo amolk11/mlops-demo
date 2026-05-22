@@ -19,3 +19,11 @@ stages:
     - src/feature_engineering.py
     outs:
     - data/feature
+  model_building:
+    cmd: python src/model_building.py
+    deps:
+    - data/feature
+    - src/model_building.py
+    outs:
+    - models/lightgbm_model.pkl
+    - models/scaler.pkl

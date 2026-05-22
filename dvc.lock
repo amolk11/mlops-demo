@@ -70,3 +70,19 @@ stages:
       hash: md5
       md5: 4d48ce39e2ba80bf452f10e5c286c1b4
       size: 888
+  model_evaluation:
+    cmd: python src/model_evaluation.py
+    deps:
+    - path: models/lightgbm_model.pkl
+      hash: md5
+      md5: 67c6c8cd8ec672016584f634aa62985f
+      size: 369925
+    - path: models/scaler.pkl
+      hash: md5
+      md5: 4d48ce39e2ba80bf452f10e5c286c1b4
+      size: 888
+    outs:
+    - path: reports/evaluation_report.json
+      hash: md5
+      md5: 2e65f8e6d1f39154763aa94fca62c173
+      size: 184

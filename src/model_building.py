@@ -1,72 +1,406 @@
 import numpy as np
 import pandas as pd
 import os
-
+import yaml
 import pickle
+import logging
 
+from typing import Optional
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from lightgbm import LGBMClassifier, early_stopping, log_evaluation
+from lightgbm import (
+    LGBMClassifier,
+    early_stopping,
+    log_evaluation
+)
+
+# Logging configuration
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+if not logger.handlers:
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+
+    file_handler = logging.FileHandler("error.log")
+    file_handler.setLevel(logging.ERROR)
+
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+    console_handler.setFormatter(formatter)
+    file_handler.setFormatter(formatter)
+
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+
+
+# Load parameters
+def load_params(param_path: str) -> Optional[dict]:
+
+    try:
+        logger.info(
+            f"Loading parameters from {param_path}..."
+        )
+
+        with open(param_path, "r") as f:
+            params = yaml.safe_load(f)["model_building"]
+
+        logger.info("Parameters loaded successfully.")
+
+        return params
+
+    except FileNotFoundError:
+        logger.exception("Parameter file not found.")
+
+    except yaml.YAMLError:
+        logger.exception("Error parsing YAML file.")
+
+    except KeyError:
+        logger.exception(
+            "'model_building' section missing in YAML."
+        )
+
+    except Exception:
+        logger.exception(
+            "Unexpected error while loading parameters."
+        )
+
+    return None
+
 
 # Load data
-print("Loading data")
-train_df=pd.read_csv("./data/feature/train.csv")
-print("Data loaded successfully.")
+def load_data(
+    train_path: str,
+    test_path: str
+) -> tuple[
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame]
+]:
+
+    try:
+        logger.info(
+            f"Loading training data from {train_path} "
+            f"and test data from {test_path}..."
+        )
+
+        train_df = pd.read_csv(train_path)
+        test_df = pd.read_csv(test_path)
+
+        logger.info("Data loaded successfully.")
+
+        return train_df, test_df
+
+    except FileNotFoundError:
+        logger.exception("Data file not found.")
+
+    except pd.errors.EmptyDataError:
+        logger.exception("CSV file is empty.")
+
+    except pd.errors.ParserError:
+        logger.exception("Error parsing CSV file.")
+
+    except Exception:
+        logger.exception(
+            "Unexpected error while loading data."
+        )
+
+    return None, None
+
 
 # Split data into features and target
-print("Splitting data into features and target...")
-X = train_df.drop(columns=['driver_acceptance'])
-y = train_df['driver_acceptance']
+def split_data(
+    train_df: pd.DataFrame
+) -> tuple[
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame],
+    Optional[pd.Series],
+    Optional[pd.Series]
+]:
 
-X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
-print("Data splitting complete.")
+    try:
+        logger.info(
+            "Splitting data into features and target..."
+        )
 
-# Standardize the features
-print("Standardizing features...")
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_val_scaled   = scaler.transform(X_val)
-print("Feature standardization complete.")
+        if 'driver_acceptance' not in train_df.columns:
+            raise KeyError(
+                "'driver_acceptance' column missing."
+            )
 
-print("Saving the scaler...")
-scaler_path = os.path.join("models", "scaler.pkl")
-if not os.path.exists("models"):
-    os.makedirs("models")
-with open(scaler_path, "wb") as f:
-    pickle.dump(scaler, f)
-print("Scaler saved successfully.")
+        X = train_df.drop(columns=['driver_acceptance'])
+        y = train_df['driver_acceptance']
 
-# Train the model
-print("Training the model...")
-model = LGBMClassifier(
-    learning_rate=0.01,
-    n_estimators=1000,
-    num_leaves=31,
-    min_child_samples=50,
-    subsample=0.8,
-    colsample_bytree=0.7,
-    reg_alpha=1,
-    reg_lambda=1,
-    class_weight='balanced',
-    random_state=42
-)
+        X_train, X_val, y_train, y_val = train_test_split(
+            X,
+            y,
+            test_size=0.2,
+            stratify=y,
+            random_state=42
+        )
 
-model.fit(
-    X_train, y_train,
-    eval_set=[(X_val, y_val)],
-    eval_metric='auc',
-    callbacks=[
-        early_stopping(stopping_rounds=50),
-        log_evaluation(0)   # suppress logs
-    ]
-)
-print("Model training complete.")
+        logger.info("Data splitting complete.")
 
-# Save the model
-print("Saving the model...")
-model_path = os.path.join("models", "lightgbm_model.pkl")
-if not os.path.exists("models"):
-    os.makedirs("models")
-with open(model_path, "wb") as f:
-    pickle.dump(model, f)
-print("Model saved successfully.")
+        return X_train, X_val, y_train, y_val
+
+    except KeyError:
+        logger.exception(
+            "Target column missing during split."
+        )
+
+    except ValueError:
+        logger.exception(
+            "Error during train-test split."
+        )
+
+    except Exception:
+        logger.exception(
+            "Unexpected error during data split."
+        )
+
+    return None, None, None, None
+
+
+# Standardize features
+def standardize_features(
+    X_train: pd.DataFrame,
+    X_val: pd.DataFrame
+) -> tuple[
+    Optional[np.ndarray],
+    Optional[np.ndarray]
+]:
+
+    try:
+        logger.info("Standardizing features...")
+
+        scaler = StandardScaler()
+
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_val_scaled = scaler.transform(X_val)
+
+        logger.info(
+            "Feature standardization complete."
+        )
+
+        logger.info("Saving scaler...")
+
+        os.makedirs("models", exist_ok=True)
+
+        scaler_path = os.path.join(
+            "models",
+            "scaler.pkl"
+        )
+
+        with open(scaler_path, "wb") as f:
+            pickle.dump(scaler, f)
+
+        logger.info("Scaler saved successfully.")
+
+        return X_train_scaled, X_val_scaled
+
+    except PermissionError:
+        logger.exception(
+            "Permission denied while saving scaler."
+        )
+
+    except Exception:
+        logger.exception(
+            "Unexpected error during standardization."
+        )
+
+    return None, None
+
+
+# Train model
+def train_model(
+    X_train: np.ndarray,
+    y_train: pd.Series,
+    X_val: np.ndarray,
+    y_val: pd.Series,
+    params: dict
+) -> Optional[LGBMClassifier]:
+
+    try:
+        logger.info("Training LightGBM model...")
+
+        required_params = [
+            'learning_rate',
+            'n_estimators',
+            'num_leaves',
+            'min_child_samples',
+            'subsample',
+            'colsample_bytree',
+            'reg_alpha',
+            'reg_lambda',
+            'class_weight',
+            'random_state'
+        ]
+
+        missing_params = [
+            param for param in required_params
+            if param not in params
+        ]
+
+        if missing_params:
+            raise KeyError(
+                f"Missing parameters: {missing_params}"
+            )
+
+        model = LGBMClassifier(
+            learning_rate=params['learning_rate'],
+            n_estimators=params['n_estimators'],
+            num_leaves=params['num_leaves'],
+            min_child_samples=params['min_child_samples'],
+            subsample=params['subsample'],
+            colsample_bytree=params['colsample_bytree'],
+            reg_alpha=params['reg_alpha'],
+            reg_lambda=params['reg_lambda'],
+            class_weight=params['class_weight'],
+            random_state=params['random_state']
+        )
+
+        model.fit(
+            X_train,
+            y_train,
+            eval_set=[(X_val, y_val)],
+            eval_metric='auc',
+            callbacks=[
+                early_stopping(stopping_rounds=50),
+                log_evaluation(0)
+            ]
+        )
+
+        logger.info("Model training complete.")
+
+        return model
+
+    except KeyError:
+        logger.exception(
+            "Required model parameters missing."
+        )
+
+    except ValueError:
+        logger.exception(
+            "Invalid values passed to model."
+        )
+
+    except Exception:
+        logger.exception(
+            "Unexpected error during model training."
+        )
+
+    return None
+
+
+# Save model
+def save_model(model: LGBMClassifier) -> None:
+
+    try:
+        logger.info("Saving model...")
+
+        os.makedirs("models", exist_ok=True)
+
+        model_path = os.path.join(
+            "models",
+            "lightgbm_model.pkl"
+        )
+
+        with open(model_path, "wb") as f:
+            pickle.dump(model, f)
+
+        logger.info("Model saved successfully.")
+
+    except PermissionError:
+        logger.exception(
+            "Permission denied while saving model."
+        )
+
+    except Exception:
+        logger.exception(
+            "Unexpected error while saving model."
+        )
+
+
+def main() -> None:
+
+    try:
+
+        params = load_params("params.yaml")
+
+        if params is None:
+            logger.error(
+                "Parameter loading failed."
+            )
+            return
+
+        train_df, test_df = load_data(
+            "data/feature/train.csv",
+            "data/feature/test.csv"
+        )
+
+        if train_df is None or test_df is None:
+            logger.error(
+                "Data loading failed."
+            )
+            return
+
+        X_train, X_val, y_train, y_val = split_data(
+            train_df
+        )
+
+        if any(
+            x is None
+            for x in [
+                X_train,
+                X_val,
+                y_train,
+                y_val
+            ]
+        ):
+            logger.error(
+                "Data splitting failed."
+            )
+            return
+
+        X_train_scaled, X_val_scaled = (
+            standardize_features(
+                X_train,
+                X_val
+            )
+        )
+
+        if (
+            X_train_scaled is None
+            or X_val_scaled is None
+        ):
+            logger.error(
+                "Feature standardization failed."
+            )
+            return
+
+        model = train_model(
+            X_train_scaled,
+            y_train,
+            X_val_scaled,
+            y_val,
+            params
+        )
+
+        if model is None:
+            logger.error(
+                "Model training failed."
+            )
+            return
+
+        save_model(model)
+
+    except Exception:
+        logger.exception(
+            "Unexpected error in model building pipeline."
+        )
+
+
+if __name__ == "__main__":
+    main()

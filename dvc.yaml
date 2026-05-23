@@ -10,6 +10,7 @@ stages:
     deps:
     - data/raw
     - src/data_preprocessing.py
+    - src/missing_value_imputer.py
     outs:
     - data/processed
   feature_engineering:
@@ -24,10 +25,21 @@ stages:
     deps:
     - data/feature
     - src/model_building.py
+    - params.yaml
+    params:
+    - model_building.learning_rate
+    - model_building.n_estimators
+    - model_building.num_leaves
+    - model_building.min_child_samples
+    - model_building.subsample
+    - model_building.colsample_bytree
+    - model_building.reg_alpha
+    - model_building.reg_lambda
+    - model_building.class_weight
+    - model_building.random_state
     outs:
     - models/lightgbm_model.pkl
     - models/scaler.pkl
-
 
   model_evaluation:
     cmd: python src/model_evaluation.py
@@ -36,5 +48,6 @@ stages:
     - models/scaler.pkl
     - src/model_evaluation.py
     - data/feature
+    - src/classification_evaluator.py
     outs:
     - reports/evaluation_report.json

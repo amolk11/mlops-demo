@@ -1,156 +1,318 @@
 import numpy as np
 import pandas as pd
 import os
+import logging
+
+from typing import Optional
+from missing_value_imputer import BookingValueImputer
+
+# Logging configuration
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+if not logger.handlers:
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+
+    file_handler = logging.FileHandler("error.log")
+    file_handler.setLevel(logging.ERROR)
+
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+    console_handler.setFormatter(formatter)
+    file_handler.setFormatter(formatter)
+
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+
 
 # Load the data
-print("Loading data...")
-train_df = pd.read_csv("./data/raw/train.csv")
-test_df = pd.read_csv("./data/raw/test.csv")
-print("Data loaded successfully.")
+def load_data(
+    train_path: str,
+    test_path: str
+) -> tuple[
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame]
+]:
+
+    try:
+        logger.debug("Loading data...")
+
+        train_df = pd.read_csv(train_path)
+        test_df = pd.read_csv(test_path)
+
+        logger.debug("Data loaded successfully.")
+
+        return train_df, test_df
+
+    except FileNotFoundError:
+        logger.exception("File not found.")
+
+    except pd.errors.EmptyDataError:
+        logger.exception("CSV file is empty.")
+
+    except pd.errors.ParserError:
+        logger.exception("Error parsing CSV file.")
+
+    except Exception:
+        logger.exception("Unexpected error while loading data.")
+
+    return None, None
+
 
 # Converting Datetime to datetime format
-print("Converting Datetime to datetime format...")
-train_df['Datetime'] = pd.to_datetime(train_df['Datetime'])
-test_df['Datetime'] = pd.to_datetime(test_df['Datetime'])
-cols = ['Datetime'] + [col for col in train_df.columns if col != 'Datetime']
-train_df = train_df[cols]
-test_df = test_df[cols]
-print("Datetime conversion complete.")
+def convert_datetime(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame
+) -> tuple[
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame]
+]:
 
-# feature selection
-print("Selecting features...")
-features = [
-    'Datetime',
-    'Vehicle Type',
-    'Pickup Location',
-    'Drop Location',
-    'Booking Value',
-]
+    try:
+        logger.debug("Converting Datetime to datetime format...")
 
-train_df = train_df[features + ['Booking Status']]
-test_df = test_df[features + ['Booking Status']]
-print("Feature selection complete.")
+        train_df['Datetime'] = pd.to_datetime(
+            train_df['Datetime'],
+            errors='coerce'
+        )
 
-# Converting Booking Status to driver acceptance (0 or 1)
-print("Converting Booking Status to driver acceptance...") 
-train_df = train_df[~train_df['Booking Status'].isin(['Cancelled by Customer','Incomplete'])]
+        test_df['Datetime'] = pd.to_datetime(
+            test_df['Datetime'],
+            errors='coerce'
+        )
 
-train_df['driver_acceptance'] = train_df['Booking Status'].apply(lambda x: 0 if x == 'No Driver Found' else 1)
+        cols = ['Datetime'] + [
+            col for col in train_df.columns
+            if col != 'Datetime'
+        ]
 
-train_df.drop(columns=['Booking Status'], inplace=True)
+        train_df = train_df[cols]
+        test_df = test_df[cols]
 
-test_df = test_df[~test_df['Booking Status'].isin(['Cancelled by Customer','Incomplete'])]
+        logger.debug("Datetime conversion complete.")
 
-test_df['driver_acceptance'] = test_df['Booking Status'].apply(lambda x: 0 if x == 'No Driver Found' else 1)
+        return train_df, test_df
 
-test_df.drop(columns=['Booking Status'], inplace=True)
-print("Booking Status conversion complete.")
+    except KeyError:
+        logger.exception("Datetime column not found.")
+
+    except Exception:
+        logger.exception("Unexpected error during datetime conversion.")
+
+    return None, None
+
+
+# Target creation and feature selection
+def create_target_and_select_features(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame
+) -> tuple[
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame]
+]:
+
+    try:
+        logger.info("Selecting features...")
+
+        features = [
+            'Datetime',
+            'Vehicle Type',
+            'Pickup Location',
+            'Drop Location',
+            'Booking Value',
+        ]
+
+        required_cols = features + ['Booking Status']
+
+        missing_train_cols = set(required_cols) - set(train_df.columns)
+        missing_test_cols = set(required_cols) - set(test_df.columns)
+
+        if missing_train_cols:
+            raise KeyError(
+                f"Missing columns in train data: {missing_train_cols}"
+            )
+
+        if missing_test_cols:
+            raise KeyError(
+                f"Missing columns in test data: {missing_test_cols}"
+            )
+
+        train_df = train_df[required_cols].copy()
+        test_df = test_df[required_cols].copy()
+
+        logger.debug("Feature selection complete.")
+
+        logger.info(
+            "Converting Booking Status to driver acceptance..."
+        )
+
+        invalid_statuses = [
+            'Cancelled by Customer',
+            'Incomplete'
+        ]
+
+        train_df = train_df[
+            ~train_df['Booking Status'].isin(invalid_statuses)
+        ].copy()
+
+        test_df = test_df[
+            ~test_df['Booking Status'].isin(invalid_statuses)
+        ].copy()
+
+        train_df['driver_acceptance'] = (
+            train_df['Booking Status'] != 'No Driver Found'
+        ).astype(int)
+
+        test_df['driver_acceptance'] = (
+            test_df['Booking Status'] != 'No Driver Found'
+        ).astype(int)
+
+        train_df.drop(
+            columns=['Booking Status'],
+            inplace=True
+        )
+
+        test_df.drop(
+            columns=['Booking Status'],
+            inplace=True
+        )
+
+        logger.info("Booking Status conversion complete.")
+
+        return train_df, test_df
+
+    except KeyError:
+        logger.exception("Required columns missing.")
+
+    except Exception:
+        logger.exception(
+            "Unexpected error during feature engineering."
+        )
+
+    return None, None
+
 
 # Handling missing values
-print("Handling missing values...")
-import pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin
+def handle_missing_values(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame
+) -> tuple[
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame]
+]:
 
-class BookingValueImputer(BaseEstimator, TransformerMixin):
-    def __init__(self):
-        self.rv_median = None
-        self.route_mean = None
-        self.vehicle_scale = None
-        self.v_median = None
-        self.global_mean = None
+    try:
+        logger.info("Handling missing values...")
 
-    def fit(self, X, y=None):
-        X = X.copy()
+        imputer = BookingValueImputer()
 
-        # Create route
-        X['route'] = X['Pickup Location'] + "_" + X['Drop Location']
+        # Fit ONLY on train
+        train_df = imputer.fit_transform(train_df)
 
-        # Store global mean (final fallback)
-        self.global_mean = X['Booking Value'].mean()
+        # Apply SAME learned stats on test
+        test_df = imputer.transform(test_df)
 
-        # Route + Vehicle median
-        self.rv_median = X.groupby(
-            ['Vehicle Type', 'Pickup Location', 'Drop Location']
-        )['Booking Value'].median()
+        logger.info("Missing value imputation complete.")
 
-        # Route mean
-        self.route_mean = X.groupby('route')['Booking Value'].mean()
+        return train_df, test_df
 
-        # Vehicle median
-        self.v_median = X.groupby('Vehicle Type')['Booking Value'].median()
+    except ValueError:
+        logger.exception("Invalid values found during imputation.")
 
-        # Vehicle scale
-        self.vehicle_scale = self.v_median / self.global_mean
+    except Exception:
+        logger.exception(
+            "Unexpected error during missing value handling."
+        )
 
-        return self
+    return None, None
 
-    def transform(self, X):
-        X = X.copy()
-        print("Number of missing values before imputation:", X['Booking Value'].isnull().sum())
-        print(f"Statistics of 'Booking Value' before imputation:\n{X['Booking Value'].describe()}")
-
-        # Create route
-        X['route'] = X['Pickup Location'] + "_" + X['Drop Location']
-
-        # Merge mappings
-        X = X.merge(self.rv_median.rename('rv_median'),
-                    on=['Vehicle Type', 'Pickup Location', 'Drop Location'],
-                    how='left')
-
-        X = X.merge(self.route_mean.rename('route_mean'),
-                    on='route',
-                    how='left')
-
-        X = X.merge(self.vehicle_scale.rename('vehicle_scale'),
-                    on='Vehicle Type',
-                    how='left')
-
-        X = X.merge(self.v_median.rename('v_median'),
-                    on='Vehicle Type',
-                    how='left')
-
-        # Step 1
-        X['Booking Value'] = X['Booking Value'].fillna(X['rv_median'])
-        print("Number of missing values after vehicle + route imputation:", X['Booking Value'].isnull().sum())
-        print(f"Statistics of 'Booking Value' after vehicle + route imputation:\n{X['Booking Value'].describe()}")
-
-        # Step 2
-        X['scaled_route_price'] = X['route_mean'] * X['vehicle_scale']
-        X['Booking Value'] = X['Booking Value'].fillna(X['scaled_route_price'])
-        print("Number of missing values after scaled route price imputation:", X['Booking Value'].isnull().sum())
-        print(f"Statistics of 'Booking Value' after scaled route price imputation:\n{X['Booking Value'].describe()}")
-
-        # Step 3
-        X['Booking Value'] = X['Booking Value'].fillna(X['v_median'])
-        print("Number of missing values after vehicle median imputation:", X['Booking Value'].isnull().sum())
-        print(f"Statistics of 'Booking Value' after vehicle median imputation:\n{X['Booking Value'].describe()}")
-
-        # Final fallback 
-        X['Booking Value'] = X['Booking Value'].fillna(self.global_mean)
-        print("Number of missing values after global mean imputation:", X['Booking Value'].isnull().sum())
-        print(f"Statistics of 'Booking Value' after global mean imputation:\n{X['Booking Value'].describe()}")
-
-        # Cleanup
-        X.drop(columns=[
-            'rv_median', 'route_mean', 'vehicle_scale',
-            'v_median', 'scaled_route_price', 'route'
-        ], inplace=True)
-
-        return X
-imputer = BookingValueImputer()
-
-# Fit ONLY on train
-train_df = imputer.fit_transform(train_df)
-
-# Apply SAME learned stats on test
-test_df = imputer.transform(test_df)
 
 # Save the preprocessed data into processed folder
-print("Saving preprocessed data into processed folder...")
+def save_preprocessed_data(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame
+) -> None:
 
-data_path = os.path.join("data", "processed")
-if not os.path.exists(data_path):
-    os.makedirs(data_path)
-train_df.to_csv(os.path.join(data_path, "train.csv"), index=False)
-test_df.to_csv(os.path.join(data_path, "test.csv"), index=False)
-print("Preprocessed data saved successfully.")
+    try:
+        logger.info(
+            "Saving preprocessed data into processed folder..."
+        )
+
+        data_path = os.path.join("data", "processed")
+
+        os.makedirs(data_path, exist_ok=True)
+
+        train_df.to_csv(
+            os.path.join(data_path, "train.csv"),
+            index=False
+        )
+
+        test_df.to_csv(
+            os.path.join(data_path, "test.csv"),
+            index=False
+        )
+
+        logger.info(
+            "Preprocessed data saved successfully."
+        )
+
+    except PermissionError:
+        logger.exception("Permission denied while saving files.")
+
+    except Exception:
+        logger.exception(
+            "Unexpected error while saving processed data."
+        )
+
+
+def main() -> None:
+
+    try:
+        train_df, test_df = load_data(
+            "data/raw/train.csv",
+            "data/raw/test.csv"
+        )
+
+        if train_df is None or test_df is None:
+            logger.error("Data loading failed.")
+            return
+
+        train_df, test_df = convert_datetime(
+            train_df,
+            test_df
+        )
+
+        if train_df is None or test_df is None:
+            logger.error("Datetime conversion failed.")
+            return
+
+        train_df, test_df = create_target_and_select_features(
+            train_df,
+            test_df
+        )
+
+        if train_df is None or test_df is None:
+            logger.error("Feature engineering failed.")
+            return
+
+        train_df, test_df = handle_missing_values(
+            train_df,
+            test_df
+        )
+
+        if train_df is None or test_df is None:
+            logger.error("Missing value handling failed.")
+            return
+
+        save_preprocessed_data(train_df, test_df)
+
+    except Exception:
+        logger.exception("Unexpected error in main pipeline.")
+
+
+if __name__ == "__main__":
+    main()
